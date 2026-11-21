@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="쓰나미가 생기는 과정을 보고, 무작위 도시와 쓰나미 속에서 건물로 대피하는 단면 시뮬레이션 게임입니다.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="쓰나미 대피 시뮬레이터">
+<meta property="og:description" content="쓰나미가 생기는 과정을 보고, 무작위 도시와 쓰나미 속에서 건물로 대피하는 단면 시뮬레이션 게임입니다.">
+<meta name="theme-color" content="#14212c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2314212c'/%3E%3Cpath d='M6 44c8 0 10-14 18-14s8 10 14 10 6-20 20-20v28H6z' fill='%233b93d6'/%3E%3Cpath d='M6 50c10 0 12-6 22-6s12 6 30 6v6H6z' fill='%231769aa'/%3E%3C/svg%3E">
+<style>html{color-scheme:light}body{margin:0}img{max-width:100%}</style>
+<title>쓰나미 대피 시뮬레이터</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+/* 레이아웃: 왼쪽 큰 단면 화면(16:9), 오른쪽은 설명/계기판 카드. 좁은 화면에서는 위아래로 쌓임. */
+:root{
+  --bg:#eceff3; --surface:#ffffff; --ink:#14212c; --muted:#5a6b7a; --line:#d2dae3;
+  --accent:#d9440f; --on-accent:#ffffff; --wave:#1769aa; --ok:#0d8a5f; --bad:#c9281c; --soft:#e3eaf0;
+  --font-display:'Do Hyeon','Noto Sans KR',system-ui,sans-serif;
+  --font-body:'Noto Sans KR',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d141b; --surface:#16212b; --ink:#e6edf3; --muted:#93a4b3; --line:#2a3a48;
+    --accent:#ff7a45; --on-accent:#1b0d05; --wave:#5db3f0; --ok:#3ccb98; --bad:#ff6b5e; --soft:#1d2b37; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d141b; --surface:#16212b; --ink:#e6edf3; --muted:#93a4b3; --line:#2a3a48;
+  --accent:#ff7a45; --on-accent:#1b0d05; --wave:#5db3f0; --ok:#3ccb98; --bad:#ff6b5e; --soft:#1d2b37; color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:14px/1.6 var(--font-body);
+  padding-block:16px 28px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.app{max-width:1240px;margin:0 auto;display:grid;gap:14px}
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:10px 18px}
+h1{font:400 32px/1.1 var(--font-display);margin:0}
+.sub{margin:4px 0 0;color:var(--muted);font-size:13px}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border:1px solid var(--line);border-radius:99px;background:var(--surface);font-size:12.5px;font-weight:500}
+.chip b{font-family:var(--font-mono);font-weight:600}
+.stage{display:grid;gap:14px;grid-template-columns:minmax(0,1fr) 330px;align-items:start}
+@media (max-width:960px){.stage{grid-template-columns:minmax(0,1fr)}}
+.board{position:relative;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#9fd0ee}
+canvas{display:block;width:100%;height:auto;aspect-ratio:16/9;touch-action:manipulation}
+.toast{position:absolute;left:50%;top:auto;bottom:17%;transform:translateX(-50%);max-width:90%;background:rgba(15,26,36,.94);color:#fff;padding:7px 14px;border-radius:8px;font-weight:700;font-size:13.5px;text-align:center;opacity:0;transition:opacity .2s;pointer-events:none;border-left:4px solid #9fb3c4}
+.toast.show{opacity:1}.toast.warn{border-left-color:#ff7a45}.toast.bad{border-left-color:#ff5a4d}.toast.good{border-left-color:#3ccb98}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(8,16,24,.38)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.overlay .card{max-width:470px;box-shadow:0 8px 28px rgba(0,0,0,.3)}
+.k{margin:0;font-size:11.5px;letter-spacing:.08em;color:var(--muted);font-weight:700}
+h2{font:400 26px/1.15 var(--font-display);margin:2px 0 0}
+h3{font:400 19px/1.2 var(--font-display);margin:0}
+.card p{margin:6px 0 0}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.btn{font:inherit;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:8px 14px;border-radius:8px;cursor:pointer;min-height:40px;user-select:none;-webkit-user-select:none}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);color:var(--on-accent);border-color:transparent}
+.btn.on{background:var(--ink);color:var(--bg)}
+.btn.small{padding:5px 10px;min-height:34px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:3px solid var(--wave);outline-offset:2px}
+.panel{display:grid;gap:12px}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.steps .btn{padding:6px 4px;min-height:36px;font-size:13px}
+.read{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:10px}
+.read .v{font:600 17px var(--font-mono);font-variant-numeric:tabular-nums}
+.read .u{font-size:12px;color:var(--muted);font-family:var(--font-body);font-weight:500}
+.note{font-size:12.5px;color:var(--muted)}
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.pill{padding:3px 10px;border-radius:99px;border:1px solid var(--line);font-size:12px;font-weight:700;color:var(--muted)}
+.pill.on{background:var(--accent);border-color:transparent;color:var(--on-accent)}
+.big{font:400 30px/1.1 var(--font-display);font-variant-numeric:tabular-nums}
+.big small{font:500 12.5px var(--font-body);color:var(--muted)}
+.clock{font:600 28px var(--font-mono);font-variant-numeric:tabular-nums}
+.phase{display:inline-block;margin-top:6px;padding:3px 10px;border-radius:99px;background:var(--soft);font-weight:700;font-size:12.5px}
+.phase.warn{background:var(--accent);color:var(--on-accent)}.phase.bad{background:var(--bad);color:#fff}.phase.good{background:var(--ok);color:#fff}
+.meter{height:10px;border-radius:99px;background:var(--soft);margin-top:6px;overflow:hidden}
+.meter i{display:block;height:100%;width:100%;background:var(--ok)}
+.meter i.low{background:var(--accent)}
+.gapbar{position:relative;height:12px;border-radius:99px;background:var(--soft);margin-top:8px;overflow:hidden}
+.gapbar i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ok)}
+.gapbar i.neg{background:var(--bad)}
+.ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.left{display:grid;gap:10px;justify-self:center;width:100%;max-width:max(480px,calc((100vh - 215px) * 16 / 9))}
+.dock{display:grid;grid-template-columns:5fr 5fr 3fr;gap:8px}
+.dock .grp{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dock .grp.st{grid-template-columns:1fr;gap:6px}
+.dock .btn{min-height:58px;font-size:18px;padding:6px 8px;touch-action:none}
+.dock .grp.st .btn{min-height:26px;font-size:13px;padding:2px 6px;touch-action:manipulation}
+.dock .btn:active{background:var(--accent);color:var(--on-accent)}
+.dockhint{margin:6px 2px 0;font-size:12px;color:var(--muted)}
+.rules{margin:8px 0 0;padding-left:18px;display:grid;gap:4px;font-size:13px}
+.result dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:10px 0 0;font-size:13px}
+.result dt{color:var(--muted)}.result dd{margin:0;font-family:var(--font-mono);font-weight:600;font-variant-numeric:tabular-nums}
+.result h2.ok{color:var(--ok)}.result h2.ng{color:var(--bad)}
+.lesson{margin-top:10px;padding:9px 11px;border-radius:8px;background:var(--soft);font-size:12.5px}
+.fine{font-size:11.5px;color:var(--muted);margin-top:8px}
+.log{display:grid;gap:4px;font-size:12.5px;max-height:130px;overflow:auto}
+.log div{display:flex;gap:8px}.log time{font-family:var(--font-mono);color:var(--muted);flex:none}
+@media (max-width:520px){h1{font-size:26px}.overlay{padding:8px}.dock{gap:6px}.dock .grp{gap:6px}.dock .btn{font-size:22px;min-height:56px;padding:4px}.dock .lb{display:none}.dock .grp.st .btn{font-size:13px;min-height:25px}.toast{font-size:12px;padding:5px 10px;max-width:94%}}
+@media (max-height:520px){body{padding-block:8px 12px}.sub{display:none}h1{font-size:22px}.top{gap:6px}.app{gap:8px}.left{max-width:calc((100vh - 112px) * 16 / 9);gap:6px}.dock .btn{min-height:44px;font-size:15px}.dock .grp.st .btn{min-height:19px;font-size:12px;padding:0 4px}.dockhint{display:none}}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <div>
+      <h1>쓰나미 대피 시뮬레이터</h1>
+      <p class="sub">쓰나미가 어떻게 생기는지 보고, 무작위 도시에서 높은 곳으로 대피하세요.</p>
+    </div>
+    <div class="meta">
+      <span class="chip" id="chipCity">도시 대기</span>
+      <span class="chip" id="chipRec">전적 0승 0패</span>
+    </div>
+  </header>
+
+  <main class="stage">
+    <div class="left">
+    <section class="board" id="board">
+      <canvas id="cv" width="960" height="540" role="img" aria-label="쓰나미 단면 화면"></canvas>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      <div class="overlay" id="result" hidden>
+        <div class="card result">
+          <p class="k" id="rCity"></p>
+          <h2 id="rTitle"></h2>
+          <p id="rReason"></p>
+          <dl id="rStats"></dl>
+          <div class="lesson" id="rLesson"></div>
+          <div class="row">
+            <button class="btn primary" id="btnAgain" type="button">같은 도시 다시</button>
+            <button class="btn" id="btnNext" type="button">새 쓰나미·새 도시</button>
+            <button class="btn" id="btnBest" type="button">최적 경로 보기</button>
+          </div>
+          <p class="fine">실제 지진 해일은 이 게임보다 훨씬 빠르고 복잡합니다. 단순화한 모델이며, 실제 대피는 지자체의 공식 안내를 따르세요.</p>
+        </div>
+      </div>
+    </section>
+    <div id="dockwrap" hidden>
+      <div class="dock" id="pad">
+        <div class="grp">
+          <button class="btn" type="button" data-key="left" aria-label="왼쪽(바다 쪽)">◀<span class="lb"> 바다</span></button>
+          <button class="btn" type="button" data-key="right" aria-label="오른쪽(내륙 쪽)"><span class="lb">내륙 </span>▶</button>
+        </div>
+        <div class="grp">
+          <button class="btn" type="button" data-key="up" aria-label="계단 오르기(건물 앞에서)">▲<span class="lb"> 오르기</span></button>
+          <button class="btn" type="button" data-key="down" aria-label="계단 내려가기">▼<span class="lb"> 내리기</span></button>
+        </div>
+        <div class="grp st">
+          <button class="btn" id="btnRun" type="button">달리기</button>
+          <button class="btn" id="btnPause" type="button">일시정지</button>
+        </div>
+      </div>
+      <p class="dockhint">← → 이동 · 건물 앞에서 ↑ 길게 눌러 계단 · Shift 달리기 · Space 일시정지</p>
+    </div>
+    </div>
+
+    <aside class="panel">
+      <!-- 인트로 -->
+      <div id="introPanel" class="panel">
+        <div class="card">
+          <p class="k">이번 쓰나미</p>
+          <div class="pills" id="tsuPills"></div>
+          <div class="read">
+            <div><p class="k">최대 파고</p><div class="v"><span id="iH">-</span> <span class="u">m</span></div></div>
+            <div><p class="k">속력(게임 설정)</p><div class="v"><span id="iV">-</span> <span class="u">m/s</span></div></div>
+          </div>
+          <p class="note" style="margin-top:8px">게임에서는 속력을 일정하게 두고, 체험하기 쉽도록 실제보다 느리게 설정했습니다.</p>
+        </div>
+        <div class="card">
+          <div class="steps" id="steps">
+            <button class="btn small" type="button" data-s="0">① 발생</button>
+            <button class="btn small" type="button" data-s="1">② 전파</button>
+            <button class="btn small" type="button" data-s="2">③ 천해파</button>
+          </div>
+          <h3 id="stTitle" style="margin-top:12px"></h3>
+          <p id="stBody"></p>
+          <div class="read" id="stRead"></div>
+          <div class="row">
+            <button class="btn small" id="btnPlay" type="button">일시정지</button>
+            <button class="btn small" id="btnReplay" type="button">처음부터</button>
+          </div>
+        </div>
+        <button class="btn primary" id="btnGo" type="button" style="min-height:48px;font-size:16px">대피 시작</button>
+      </div>
+
+      <!-- 게임 -->
+      <div id="gamePanel" class="panel" hidden>
+        <div class="card">
+          <p class="k">쓰나미 앞면이 내 위치에 도착하기까지</p>
+          <div class="big"><span id="gEta">--</span> <small id="gEtaReal"></small></div>
+          <span class="phase" id="phase">대피 중</span>
+          <div class="gapbar" aria-hidden="true"><i id="gapFill"></i></div>
+        </div>
+        <div class="card">
+          <div class="read" style="margin-top:0">
+            <div><p class="k">쓰나미 최대 파고</p><div class="v"><span id="gH">-</span> <span class="u">m</span></div></div>
+            <div><p class="k">쓰나미 속력</p><div class="v"><span id="gV">-</span> <span class="u">m/s</span></div></div>
+            <div><p class="k">내 높이 y</p><div class="v"><span id="gY">0.0</span> <span class="u">m</span></div></div>
+            <div><p class="k">안전까지</p><div class="v"><span id="gNeed">-</span> <span class="u">m</span></div></div>
+          </div>
+          <p class="k" style="margin-top:12px">스태미나</p>
+          <div class="meter"><i id="stam"></i></div>
+          <p class="k" style="margin-top:12px">경과 시간 (게임 시간)</p>
+          <div class="clock" id="gClock">00:00</div>
+        </div>
+        <div class="card">
+          <p class="k">시간 배속</p>
+          <div class="ctrl" style="margin-top:6px" id="speedBtns">
+            <button class="btn small" type="button" data-k="1">×1</button>
+            <button class="btn small" type="button" data-k="2">×2</button>
+            <button class="btn small" type="button" data-k="5">×5</button>
+            <button class="btn small" type="button" data-k="10">×10</button>
+          </div>
+          <p class="note" style="margin-top:8px" id="kNote"></p>
+        </div>
+        <div class="card">
+          <p class="k">조작 방법</p>
+          <ul class="rules">
+            <li><b>←→ / A D</b> 도로를 따라 이동 (오른쪽이 내륙)</li>
+            <li><b>↑ / W</b> 건물 앞에서 누르고 있으면 계단 오름, <b>↓ / S</b> 내려감</li>
+            <li><b>Shift</b> 달리기 · <b>Space</b> 일시정지</li>
+            <li>산 비탈을 오르면 높이가 올라가지만 걸음이 느려집니다.</li>
+            <li>판정: 쓰나미 앞면이 내 x에 닿는 순간 내 y가 파고 이하이면 사망.</li>
+          </ul>
+        </div>
+        <div class="card log" id="log"></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+/* ===== 쓰나미 대피 (단면 게임) — 코어 로직, DOM 없음 ===== */
+const G9 = 9.8;
+const TSUNAMIS = [
+  { id: 1, H: 40, v: 1, K: 3 },   // 최대 파고 m, 속력 m/s, 기본 배속
+  { id: 2, H: 10, v: 5, K: 2 },
+  { id: 3, H: 20, v: 10, K: 2 }
+];
+const WALK = 0.9, RUN = 1.8, CLIMB = 0.4, MAXG = 1.4, GAP_T = [100, 240], RUN_SEC = 12, SAFE_MARGIN = 3;
+
+const CITY_INFO = [
+  { id: 0, name: '해안 평야 도시', desc: '해안에서 한참 평지가 이어지고 고지대는 멀리 있습니다. 중간에 대피할 만한 높은 건물이 있습니다.' },
+  { id: 1, name: '리아스식 골짜기 도시', desc: '좁은 골짜기를 따라 시가지가 완만하게 올라갑니다. 건물은 낮고, 산이 가깝습니다.' },
+  { id: 2, name: '항만 고층 도시', desc: '고층 건물이 많은 항만 도시입니다. 언덕은 멀고, 건물 계단은 시간이 걸립니다.' }
+];
+
+function rng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ---------- 도시 생성 ---------- */
+function makeCity(ci, seed) {
+  const r = rng((seed * 2654435761 + ci * 9973) >>> 0);
+  const J = (a, b) => a + (b - a) * r();
+  let pts;
+  if (ci === 0) {
+    const h0 = J(560, 640);
+    pts = [[-400, -60], [-40, -8], [0, 0.6], [h0 - 80, 2.5], [h0, 5], [h0 + 70, 18], [h0 + 130, 42], [h0 + 200, 70], [h0 + 330, 105], [h0 + 500, 150]];
+  } else if (ci === 1) {
+    const s = J(0.9, 1.15);
+    pts = [[-400, -70], [-30, -10], [0, 0.5], [100 * s, 3], [200 * s, 10], [280 * s, 22], [340 * s, 40], [400 * s, 66], [470 * s, 100], [620 * s, 150]];
+  } else {
+    const h0 = J(430, 500);
+    pts = [[-400, -60], [-40, -9], [0, 1.5], [h0 - 40, 3], [h0, 8], [h0 + 80, 34], [h0 + 140, 62], [h0 + 220, 82], [h0 + 400, 105]];
+  }
+  const xEnd = pts[pts.length - 1][0];
+  const groundAt = x => {
+    if (x <= pts[0][0]) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) if (x <= pts[i][0]) {
+      const a = pts[i - 1], b = pts[i]; return a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]);
+    }
+    return pts[pts.length - 1][1];
+  };
+  const gradeAt = x => (groundAt(x + 1) - groundAt(x - 1)) / 2;
+  const bld = [];
+  function place(n, x0, x1, wmin, wmax, hf, kind) {
+    for (let k = 0, tries = 0; k < n && tries < 400; tries++) {
+      const w = J(wmin, wmax), x = J(x0, x1 - w);
+      if (Math.abs(gradeAt(x)) > 0.07 || Math.abs(gradeAt(x + w)) > 0.07) continue;
+      if (bld.some(b => x < b.x + b.w + 6 && x + w + 6 > b.x)) continue;
+      bld.push({ x, w, h: hf(), base: groundAt(x + w / 2), kind }); k++;
+    }
+  }
+  if (ci === 0) {
+    place(1, 70, 230, 22, 30, () => J(44, 52), 'tower');
+    place(3, 20, 500, 14, 22, () => J(18, 30), 'mid');
+    place(8, 15, 520, 10, 16, () => J(6, 12), 'house');
+  } else if (ci === 1) {
+    place(1, 50, 240, 16, 22, () => J(44, 52), 'tower');
+    place(1, 90, 260, 16, 22, () => J(24, 30), 'mid');
+    place(9, 15, 300, 8, 14, () => J(5, 14), 'house');
+  } else {
+    place(2, 60, 340, 20, 30, () => J(48, 64), 'tower');
+    place(5, 20, 380, 16, 26, () => J(22, 40), 'mid');
+    place(3, 20, 380, 12, 18, () => J(10, 18), 'house');
+  }
+  bld.sort((a, b) => a.x - b.x);
+  return { ci, seed, name: CITY_INFO[ci].name, pts, bld, xEnd, groundAt, gradeAt };
+}
+
+/* ---------- 이동 ---------- */
+function walkSpeed(city, x, dir, run) {
+  const g = (city.groundAt(x + dir * 0.5) - city.groundAt(x - dir * 0.5));
+  if (g > MAXG) return 0;
+  const m = g > 0 ? 1 / (1 + 2.5 * g) : 1 + Math.min(0.25, -g * 0.3);
+  return (run ? RUN : WALK) * m;
+}
+const frontArrival = (ts, x, f0) => (x - f0) / ts.v;
+
+/* 파도가 지형에 막혀 멈추는 위치 (지형 높이 >= 파고) */
+function stopX(city, H) {
+  for (let x = 0; x <= city.xEnd; x += 1) if (city.groundAt(x) >= H) return x;
+  return city.xEnd;
+}
+
+/* ---------- 클리어 가능성 분석 (시작 위치 배치용) ---------- */
+function walkPlan(city, ts, x0, x1, f0) {
+  const dir = x1 >= x0 ? 1 : -1; let t = 0, margin = Infinity, x = x0;
+  while ((x1 - x) * dir > 0) {
+    const sp = walkSpeed(city, x, dir, false); if (sp <= 0) return null;
+    t += 1 / sp; x += dir;
+    if (city.groundAt(x) <= ts.H) margin = Math.min(margin, frontArrival(ts, x, f0) - t);
+  }
+  return { t, margin };
+}
+function analyze(city, ts, sx, f0) {
+  let best = null;
+  const take = o => { if (o && (!best || o.margin > best.margin)) best = o; };
+  const xs = stopX(city, ts.H);
+  const w = walkPlan(city, ts, sx, Math.min(city.xEnd, xs + 2), f0);
+  if (w) take({ type: 'hill', x: xs, margin: Math.min(w.margin, frontArrival(ts, xs + 2, f0) - w.t), time: w.t });
+  for (const b of city.bld) {
+    const need = ts.H + 0.3 - b.base; if (need > b.h) continue;
+    const dx = sx < b.x + 0.4 ? b.x + 0.4 : sx > b.x + b.w - 0.4 ? b.x + b.w - 0.4 : sx;
+    const p = walkPlan(city, ts, sx, dx, f0); if (!p) continue;
+    const tt = p.t + need / CLIMB;
+    take({ type: 'building', b, x: dx, margin: Math.min(p.margin, frontArrival(ts, dx, f0) - tt), time: tt });
+  }
+  return best;
+}
+
+/* ---------- 게임 상태 ---------- */
+function createState(city, ts, sx, f0) {
+  return { city, ts, t: 0, x: sx, climb: 0, front: f0, front0: f0, stam: RUN_SEC, running: false, moving: false, speed: 0,
+    done: false, result: null, stopX: stopX(city, ts.H), dir: 1, onB: null };
+}
+const bldAt = (city, x) => city.bld.find(b => x >= b.x && x <= b.x + b.w) || null;
+const playerY = S => S.city.groundAt(S.x) + S.climb;
+
+function resolve(S, why) {
+  const y = playerY(S), H = S.ts.H;
+  S.done = true;
+  S.result = { alive: y > H, y, H, t: S.t, x: S.x, why, margin: y - H, onB: !!(S.climb > 0.05) };
+}
+function sub(S, keys, h) {
+  S.t += h; S.front += S.ts.v * h;
+  S.onB = bldAt(S.city, S.x);
+  if (keys.up && S.onB) { S.climb = Math.min(S.onB.h, S.climb + CLIMB * h); }
+  else if (keys.down && S.climb > 0) { S.climb = Math.max(0, S.climb - CLIMB * 1.5 * h); }
+  if (!S.onB) S.climb = 0;
+  const inside = S.climb > 0.05;
+  const dx = inside ? 0 : (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  S.moving = false; S.speed = 0; S.running = false;
+  if (dx) {
+    const run = !!keys.run && S.stam > 0;
+    const sp = walkSpeed(S.city, S.x, dx, run);
+    if (sp > 0) {
+      S.x = Math.min(S.city.xEnd, Math.max(0, S.x + dx * sp * h));
+      S.moving = true; S.speed = sp; S.dir = dx; S.running = run;
+    }
+    if (run) S.stam = Math.max(0, S.stam - h);
+    else S.stam = Math.min(RUN_SEC, S.stam + h * 0.3);
+  } else S.stam = Math.min(RUN_SEC, S.stam + h * 0.5);
+  if (S.front >= S.x) return resolve(S, 'front');
+  if (S.front >= S.stopX && S.x > S.stopX) return resolve(S, 'blocked');
+}
+function step(S, keys, dt) {
+  let rem = dt;
+  while (rem > 1e-9 && !S.done) { const h = Math.min(0.1, rem); sub(S, keys, h); rem -= h; }
+}
+
+if (typeof module !== 'undefined') module.exports = { G9, TSUNAMIS, CITY_INFO, WALK, RUN, CLIMB, GAP_T, RUN_SEC, SAFE_MARGIN, rng, makeCity, walkSpeed, frontArrival, stopX, analyze, createState, step, playerY, bldAt };
+
+/* 시작 위치와 쓰나미 앞면 간격: 최적 대피의 여유가 MARGIN_T 구간에 들어오도록 이분탐색 (아슬아슬한 성공) */
+const MARGIN_T = [4, 14], GAP_MIN = 25;
+function pickStart(city, ts, r) {
+  const marg = (sx, gt) => { const a = analyze(city, ts, sx, sx - ts.v * gt); return a ? a.margin : -1e9; };
+  let fallback = null;
+  for (let k = 0; k < 80; k++) {
+    const sx = 15 + r() * 65, mt = MARGIN_T[0] + r() * (MARGIN_T[1] - MARGIN_T[0]);
+    if (marg(sx, 900) < mt) continue;
+    let lo = GAP_MIN, hi = 900;
+    if (marg(sx, lo) >= mt) hi = lo;
+    else for (let i = 0; i < 30; i++) { const mid = (lo + hi) / 2; if (marg(sx, mid) >= mt) hi = mid; else lo = mid; }
+    const f0 = sx - ts.v * hi, a = analyze(city, ts, sx, f0);
+    if (!a || a.margin < SAFE_MARGIN) continue;
+    if (a.margin <= MARGIN_T[1] + 4) return { sx, f0, a, gt: hi };
+    if (!fallback || a.margin < fallback.a.margin) fallback = { sx, f0, a, gt: hi };
+  }
+  return fallback;
+}
+if (typeof module !== 'undefined') module.exports.pickStart = pickStart;
+
+</script>
+<script>
+(function(){
+'use strict';
+var $=function(id){return document.getElementById(id);};
+var cv=$('cv'), ctx=cv.getContext('2d'), CW=960, CH=540;
+var reduced=false; try{ reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+var mode='intro', S=null, city=null, ts=null, plan=null, curSeed=1, curCi=0, curTi=0;
+var keys={left:0,right:0,up:0,down:0,run:0}, padKeys={left:0,right:0,up:0,down:0};
+var Kmul=1, paused=false, last=0, showBest=false, autoFast=false, lastToast='';
+
+function setText(e,v){ if(e._v!==v){ e._v=v; e.textContent=v; } }
+function fmtT(s){ s=Math.max(0,Math.round(s)); var m=Math.floor(s/60), r=s%60; return (m<10?'0':'')+m+':'+(r<10?'0':'')+r; }
+function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+function ease(t){ t=clamp(t,0,1); return t*t*(3-2*t); }
+function loadRec(){ try{ return JSON.parse(localStorage.getItem('tsunamiSide.v1'))||{win:0,lose:0}; }catch(e){ return {win:0,lose:0}; } }
+function saveRec(r){ try{ localStorage.setItem('tsunamiSide.v1',JSON.stringify(r)); }catch(e){} }
+function showRec(){ var r=loadRec(); setText($('chipRec'),'전적 '+r.win+'승 '+r.lose+'패'); }
+var toastT=0;
+function toast(m,k){ var e=$('toast'); if(!m){ e.classList.remove('show'); return; } e.textContent=m; e.className='toast show '+(k||''); clearTimeout(toastT); toastT=setTimeout(function(){ e.classList.remove('show'); },3200); }
+function addLog(m){ var d=document.createElement('div'), t=document.createElement('time'), s=document.createElement('span'); t.textContent=S?fmtT(S.t):'00:00'; s.textContent=m; d.appendChild(t); d.appendChild(s); var lg=$('log'); lg.insertBefore(d,lg.firstChild); while(lg.children.length>25) lg.removeChild(lg.lastChild); }
+
+/* =========================================================
+   인트로: 쓰나미 발생 → 전파 → 천해파
+   ========================================================= */
+var IY=210, IDP=260, US=0.93, UE=0.88, USRC=0.14, T_GEN=5, CV=0.05, TP=2.4, N_TAU=480;
+var tauR=[], tw=0, introStep=0, introPlaying=true, introEndT=0;
+function dep(u){ if(u<=0.5) return 4000; if(u<=UE){ var q=(u-0.5)/(UE-0.5); return 60+(4000-60)*Math.pow(1-q,2.2); } if(u<=US) return 60*(1-(u-UE)/(US-UE)); return 0; }
+function floorY(u){ return u<=US ? IY+Math.sqrt(dep(u)/4000)*IDP : IY-(u-US)*520; }
+function cspd(u){ return CV*Math.sqrt(Math.max(dep(u),3)/4000); }
+(function buildTau(){ var t=T_GEN; for(var i=0;i<=N_TAU;i++){ var u=i/N_TAU; if(u<USRC){ tauR.push(0); } else { if(i>0&&u>USRC){ var u0=(i-1)/N_TAU; t+= (u>USRC&&u0>=USRC)? (u-u0)/cspd((u+u0)/2) : 0; } tauR.push(t); } } })();
+function tauAt(u){ var f=clamp(u,0,1)*N_TAU, i=Math.floor(f); if(i>=N_TAU) return tauR[N_TAU]; var fr=f-i; return tauR[i]+(tauR[i+1]-tauR[i])*fr; }
+function tauL(u){ return T_GEN+(USRC-u)/CV; }
+var T_UE=tauAt(UE), T_BORE=T_UE+0.25*TP;
+function pulse(s){ return Math.sin(6.2832*s)*Math.exp(-(s/0.9)*(s/0.9)); }
+function ampPx(u){ return 4*Math.pow(4000/Math.max(dep(u),5),0.25); }
+function eta(u,t){
+  var e=0;
+  if(u>=USRC) e=ampPx(u)*pulse((t-tauAt(u))/TP); else e=ampPx(u)*pulse((t-tauL(u))/TP);
+  if(t<T_GEN+1){ var g=Math.exp(-Math.pow((u-USRC)/0.05,2)); e+=14*ease(t/2.5)*(1-ease((t-2.5)/2.5))*g; }
+  return e;
+}
+function crestU(t){
+  if(t<T_GEN) return USRC;
+  var lo=USRC, hi=UE; for(var i=0;i<30;i++){ var m=(lo+hi)/2; if(tauAt(m)+0.25*TP<t) lo=m; else hi=m; } return lo;
+}
+var STEPS=[
+ {t0:0.2, title:'① 발생: 해저가 솟아오른다', body:'해저의 판이 갑자기 어긋나 솟아오르면(역단층) 그 위의 바닷물 전체가 한꺼번에 밀려 올라갑니다. 바람이 만드는 파도는 표면만 흔들지만, 지진 해일은 바다 밑바닥에서 수면까지 물 전체가 움직입니다.'},
+ {t0:T_GEN+1.5, title:'② 전파: 제트기 속력, 낮은 파고', body:'수심 4,000 m에서 속력은 √(g·h)로 약 198 m/s, 시속 700 km가 넘습니다. 파장은 수백 km라서 바다 위의 배는 1~2 m의 완만한 오르내림만 느낍니다.'},
+ {t0:0, title:'③ 천해파: 얕아질수록 느려지고 높아진다', body:'지진 해일은 파장이 수심보다 훨씬 길어서, 깊은 바다에서도 천해파(얕은 물의 파)로 움직입니다. 속력이 수심의 제곱근에 비례하므로 해안에 가까워져 수심이 줄면 앞쪽이 느려지고, 뒤따르는 파가 따라붙어 파장이 줄며 파고가 커집니다(그린 법칙: 높이 ∝ 수심^-1/4). 지형에 따라 수십 m까지 솟습니다.'}
+];
+STEPS[2].t0=tauAt(0.58);
+function stepOf(t){ return t>=STEPS[2].t0?2:(t>=STEPS[1].t0?1:0); }
+function setStep(i,play){ introStep=i; tw=STEPS[i].t0+(i===0?0:0); if(i===0) tw=0.2; if(reduced&&!play){ tw=[3.4,9,tauAt(0.74)+0.6][i]; introPlaying=false; } else introPlaying=true; updateIntroUI(true); }
+function realReadout(t){
+  var u=crestU(t), d=dep(u); if(t<T_GEN) d=4000;
+  var c=Math.sqrt(G9*Math.max(d,2)), amp=1.5*Math.pow(4000/Math.max(d,30),0.25), lam=c*1200/1000;
+  return {d:d,c:c,kmh:c*3.6,lam:lam,amp:amp};
+}
+var rdCache='';
+function updateIntroUI(force){
+  var st=stepOf(tw), bore=tw>=T_BORE;
+  if(force||st!==introStep||true){ if(st!==introStep&&!force) introStep=st; }
+  var b=$('steps').children; for(var i=0;i<3;i++) b[i].classList.toggle('on',i===introStep);
+  setText($('stTitle'),bore?'③ 해안 상륙: 물의 벽':STEPS[introStep].title);
+  setText($('stBody'),bore?('해안에 닿은 파는 하나의 물 덩어리가 되어 밀려 올라옵니다. 이번 쓰나미는 최대 파고 '+ts.H+' m입니다. 그림의 점선이 이 높이입니다.'):STEPS[introStep].body);
+  var r=realReadout(tw), key=introStep+'|'+Math.round(r.d)+'|'+bore;
+  if(force||key!==rdCache){ rdCache=key;
+    var h='';
+    function cell(k,v,u){ return '<div><p class="k">'+k+'</p><div class="v">'+v+' <span class="u">'+u+'</span></div></div>'; }
+    if(introStep===0&&tw<T_GEN) h=cell('수심','4,000','m')+cell('해저 융기','약 5','m');
+    else h=cell('수심',r.d>=100?Math.round(r.d).toLocaleString('ko-KR'):r.d.toFixed(0),'m')+cell('속력',r.c.toFixed(0),'m/s ('+r.kmh.toFixed(0)+' km/h)')+cell('파장(주기 20분)',r.lam<10?r.lam.toFixed(1):r.lam.toFixed(0),'km')+cell('파고(예시)',r.amp.toFixed(1),'m');
+    $('stRead').innerHTML=h;
+  }
+}
+function drawIntro(){
+  var g=ctx, t=tw, u, x, W=CW;
+  var sky=g.createLinearGradient(0,0,0,IY); sky.addColorStop(0,'#bfe3f7'); sky.addColorStop(1,'#e8f5fc'); g.fillStyle=sky; g.fillRect(0,0,CW,CH);
+  var N=240, xs=function(u){ return u*W; };
+  // 해수
+  var bore=t>=T_BORE, tb=bore?t-T_BORE:0;
+  g.beginPath(); g.moveTo(0,CH);
+  var lim=US;
+  for(var i=0;i<=N;i++){ u=i/N*lim; var e=eta(u,t); g.lineTo(xs(u),IY-e); }
+  g.lineTo(xs(lim),IY); g.lineTo(xs(lim),CH); g.closePath();
+  var wg=g.createLinearGradient(0,IY,0,CH); wg.addColorStop(0,'#3b93d6'); wg.addColorStop(1,'#12477f'); g.fillStyle=wg; g.fill();
+  // 해저
+  g.beginPath(); g.moveTo(0,CH);
+  for(i=0;i<=N;i++){ u=i/N; var fy=floorY(u); if(t<T_GEN+2&&u<USRC+0.12&&u>USRC-0.12){ var up=ease(t/T_GEN)*26*Math.exp(-Math.pow((u-USRC)/0.05,2))*(u>USRC-0.0?1:0.4); fy-=up*(u>=USRC-0.02?1:0.3); } g.lineTo(xs(u),fy); }
+  g.lineTo(W,CH); g.closePath(); g.fillStyle='#6d5b48'; g.fill();
+  g.strokeStyle='#8a7560'; g.lineWidth=3; g.beginPath(); for(i=0;i<=N;i++){ u=i/N; g.lineTo(xs(u),floorY(u)); } g.stroke();
+  // 육지의 작은 도시
+  g.fillStyle='#8c8f94'; for(i=0;i<9;i++){ var bu=US+0.015+i*0.006, bh=14+((i*37)%5)*6; g.fillRect(xs(bu),floorY(bu)-bh,12,bh); }
+  // 단층
+  g.strokeStyle='#ffcf5a'; g.lineWidth=3; g.setLineDash([6,5]); g.beginPath(); g.moveTo(xs(USRC)-26,floorY(USRC)+60); g.lineTo(xs(USRC)+18,floorY(USRC)-4); g.stroke(); g.setLineDash([]);
+  g.fillStyle='#fff'; g.font='700 14px "Noto Sans KR",sans-serif'; g.fillText('해저 단층(진원)',xs(USRC)-50,floorY(USRC)+84);
+  g.fillText('수심 4,000 m',xs(0.3),floorY(0.3)-10); g.fillText('해안',xs(US)-30,IY-52);
+  // 해수면 선
+  g.strokeStyle='rgba(255,255,255,.55)'; g.lineWidth=1; g.setLineDash([3,6]); g.beginPath(); g.moveTo(0,IY); g.lineTo(xs(US),IY); g.stroke(); g.setLineDash([]);
+  // 마루 표시
+  if(t>T_GEN+0.5&&!bore){ var cu=crestU(t), cx=xs(cu), cy=IY-eta(cu,t);
+    g.strokeStyle='#fff'; g.lineWidth=1.5; g.setLineDash([4,4]); g.beginPath(); g.moveTo(cx,IY); g.lineTo(cx,floorY(cu)); g.stroke(); g.setLineDash([]);
+    g.fillStyle='#ffcf5a'; g.beginPath(); g.moveTo(cx,cy-30); g.lineTo(cx-7,cy-42); g.lineTo(cx+7,cy-42); g.closePath(); g.fill();
+    var r=realReadout(t); g.fillStyle='#fff'; g.font='700 14px "IBM Plex Mono",monospace'; var lb=Math.round(r.d)+' m · '+r.c.toFixed(0)+' m/s'; g.fillText(lb,clamp(cx-50,6,W-170),cy-50); }
+  // 물의 벽
+  if(bore){ var Hp=ts.H*3, hh=Hp*ease(tb/2.2), wx=xs(US)+ease(tb/5)*70;
+    g.beginPath(); g.moveTo(xs(US-0.1),IY); g.lineTo(xs(US-0.1),IY-hh*0.35); g.lineTo(wx-40,IY-hh); g.quadraticCurveTo(wx+8,IY-hh-8,wx+6,IY-hh*0.55); g.lineTo(wx+10,floorY(US+0.05)); g.lineTo(xs(US-0.1),IY+40); g.closePath(); g.fillStyle='rgba(52,140,214,.9)'; g.fill();
+    g.strokeStyle='rgba(255,255,255,.8)'; g.lineWidth=3; g.beginPath(); g.moveTo(wx-40,IY-hh); g.quadraticCurveTo(wx+8,IY-hh-8,wx+6,IY-hh*0.55); g.stroke();
+    g.strokeStyle='#ffcf5a'; g.lineWidth=2; g.setLineDash([8,6]); g.beginPath(); g.moveTo(xs(US)-160,IY-Hp); g.lineTo(CW-8,IY-Hp); g.stroke(); g.setLineDash([]);
+    g.fillStyle='#b4510a'; g.font='700 16px "Noto Sans KR",sans-serif'; g.fillText('최대 파고 '+ts.H+' m',CW-176,IY-Hp-8); }
+  // 단계 라벨
+  g.fillStyle='rgba(20,33,44,.8)'; g.font='700 15px "Noto Sans KR",sans-serif'; g.fillText('바다',10,26); g.fillText('육지 →',CW-80,26);
+  g.fillStyle='rgba(20,33,44,.6)'; g.font='500 12px "Noto Sans KR",sans-serif'; g.fillText('세로 방향은 보기 쉽게 크게 그렸습니다.',10,CH-8);
+}
+
+/* =========================================================
+   게임
+   ========================================================= */
+var SC=4;
+var cam={x:0,y:0};
+var SKY_TOP='#a9d6f2', SKY_BOT='#e6f4fb';
+var gm={shake:0};
+function setPhaseUI(txt,k){ setText($('phase'),txt); $('phase').className='phase '+(k||''); }
+
+function newGame(ci,ti,seed){
+  ci=(ci==null)?Math.floor(Math.random()*3):ci; ti=(ti==null)?Math.floor(Math.random()*3):ti; seed=(seed==null)?Math.floor(Math.random()*1e6)+1:seed;
+  city=makeCity(ci,seed); ts=TSUNAMIS[ti]; curCi=ci; curTi=ti; curSeed=seed;
+  var r=rng(seed+777), st=pickStart(city,ts,r);
+  plan=st.a; S=createState(city,ts,st.sx,st.f0);
+  Kmul=ts.K; paused=false; showBest=false; autoFast=false;
+  cam.x=S.x; cam.y=playerY(S);
+  setText($('chipCity'),city.name+' · 쓰나미 '+ts.id+'번');
+  var pl=$('tsuPills'); pl.innerHTML='';
+  TSUNAMIS.forEach(function(t){ var s=document.createElement('span'); s.className='pill'+(t.id===ts.id?' on':''); s.textContent=t.id+'번 '+t.H+'m · '+t.v+'m/s'; pl.appendChild(s); });
+  setText($('iH'),String(ts.H)); setText($('iV'),String(ts.v)); setText($('gH'),String(ts.H)); setText($('gV'),String(ts.v));
+  $('result').hidden=true; $('btnBest').textContent='최적 경로 보기';
+  $('log').innerHTML='';
+  mode='intro'; $('introPanel').hidden=false; $('gamePanel').hidden=true; $('dockwrap').hidden=true;
+  tw=0; introPlaying=!reduced; introStep=0; if(reduced) setStep(0,false); updateIntroUI(true);
+  $('btnPlay').textContent=introPlaying?'일시정지':'재생';
+  showRec(); toast('','');
+}
+function startGame(){
+  mode='play'; $('introPanel').hidden=true; $('gamePanel').hidden=false; $('dockwrap').hidden=false;
+  updateSpeedUI(); addLog('대피 시작. 오른쪽이 내륙, 높은 곳으로!');
+  toast('쓰나미 경보: 최대 파고 '+ts.H+' m. 파고보다 높은 곳으로!','bad');
+}
+function updateSpeedUI(){
+  var b=$('speedBtns').querySelectorAll('[data-k]'); for(var i=0;i<b.length;i++) b[i].classList.toggle('on',+b[i].getAttribute('data-k')===Kmul);
+  $('btnPause').classList.toggle('on',paused); setText($('btnPause'),paused?'계속하기':'일시정지');
+  setText($('kNote'),'게임 시간은 실제의 ×'+Kmul+'배로 흐릅니다. 걷는 속도 '+WALK+' m/s, 계단 '+CLIMB+' m/s는 게임 시간 기준입니다.');
+}
+
+/* ---------- 입력 ---------- */
+var KMAP={ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',ArrowUp:'up',KeyW:'up',ArrowDown:'down',KeyS:'down'};
+window.addEventListener('keydown',function(e){
+  if(e.target&&e.target.tagName==='INPUT') return;
+  if(KMAP[e.code]){ keys[KMAP[e.code]]=1; if(mode==='play') e.preventDefault(); }
+  if(e.key==='Shift') keys.run=1;
+  if(e.code==='Space'&&mode==='play'){ e.preventDefault(); togglePause(); }
+});
+window.addEventListener('keyup',function(e){ if(KMAP[e.code]) keys[KMAP[e.code]]=0; if(e.key==='Shift') keys.run=0; });
+window.addEventListener('blur',function(){ keys={left:0,right:0,up:0,down:0,run:keys.run&&0}; padKeys={left:0,right:0,up:0,down:0}; });
+Array.prototype.forEach.call($('pad').querySelectorAll('[data-key]'),function(b){
+  var k=b.getAttribute('data-key');
+  var on=function(e){ e.preventDefault(); padKeys[k]=1; try{ b.setPointerCapture(e.pointerId); }catch(x){} };
+  var off=function(){ padKeys[k]=0; };
+  b.addEventListener('pointerdown',on); b.addEventListener('pointerup',off); b.addEventListener('pointercancel',off); b.addEventListener('lostpointercapture',off);
+});
+var runTog=false;
+$('btnRun').addEventListener('click',function(){ runTog=!runTog; this.classList.toggle('on',runTog); });
+function togglePause(){ if(mode!=='play'||!S||S.done) return; paused=!paused; updateSpeedUI(); if(paused) toast('일시정지',''); }
+$('btnPause').addEventListener('click',togglePause);
+$('speedBtns').addEventListener('click',function(e){ var k=e.target.getAttribute&&e.target.getAttribute('data-k'); if(k){ Kmul=+k; updateSpeedUI(); } });
+$('btnGo').addEventListener('click',startGame);
+$('steps').addEventListener('click',function(e){ var s=e.target.getAttribute&&e.target.getAttribute('data-s'); if(s!=null){ setStep(+s,false); if(!reduced){ introPlaying=true; $('btnPlay').textContent='일시정지'; } } });
+$('btnPlay').addEventListener('click',function(){ introPlaying=!introPlaying; this.textContent=introPlaying?'일시정지':'재생'; });
+$('btnReplay').addEventListener('click',function(){ tw=0; introPlaying=true; $('btnPlay').textContent='일시정지'; updateIntroUI(true); });
+$('btnAgain').addEventListener('click',function(){ newGame(curCi,curTi,curSeed); });
+$('btnNext').addEventListener('click',function(){ newGame(); });
+$('btnBest').addEventListener('click',function(){ showBest=!showBest; this.textContent=showBest?'경로 숨기기':'최적 경로 보기'; });
+document.addEventListener('visibilitychange',function(){ if(document.hidden&&mode==='play'&&S&&!S.done&&!paused) togglePause(); });
+
+/* ---------- 파도 모델(그리기용) ---------- */
+function shoalAmp(x,H){ if(x>=0) return H; var d=Math.max(3,-city.groundAt(x)); return H*Math.min(1,Math.pow(3/d,0.25)); }
+function waveLevel(x,f,H,A){
+  if(x>f) return 0; var rw=1.5+0.12*H, back=f-x, lv=A;
+  if(back<rw) lv=A*ease(back/rw);
+  if(back>500) lv=A*Math.max(0,1-(back-500)/300);
+  return lv;
+}
+
+/* ---------- 그리기 ---------- */
+function sx(x){ return CW/2+(x-cam.x)*SC; }
+function sy(y){ return CH*0.6-(y-cam.y)*SC; }
+function drawGame(now){
+  var g=ctx, H=ts.H, f=S.front, A=shoalAmp(f,H);
+  var py=playerY(S);
+  var kx=S.done?0:0;
+  cam.x+=(S.x-cam.x)*0.12; cam.y+=(py-cam.y)*0.08;
+  var sky=g.createLinearGradient(0,0,0,CH); sky.addColorStop(0,SKY_TOP); sky.addColorStop(1,SKY_BOT); g.fillStyle=sky; g.fillRect(0,0,CW,CH);
+  // 먼 산 실루엣
+  g.fillStyle='rgba(120,150,170,.35)'; g.beginPath(); g.moveTo(0,CH);
+  for(var xx=0;xx<=CW;xx+=20){ var wx=cam.x*0.25+xx/SC*0.6; g.lineTo(xx,sy(cam.y*0.75+34+Math.sin(wx*0.05)*12+Math.sin(wx*0.13)*6)+CH*0.25); } g.lineTo(CW,CH); g.closePath(); g.fill();
+  var x0=cam.x-CW/2/SC-3, x1=cam.x+CW/2/SC+3, i, x;
+  // 지형
+  g.beginPath(); g.moveTo(sx(x0),CH+10);
+  for(x=x0;x<=x1;x+=1.5) g.lineTo(sx(x),sy(city.groundAt(x)));
+  g.lineTo(sx(x1),CH+10); g.closePath(); g.fillStyle='#7b6a55'; g.fill();
+  g.lineWidth=4; for(x=x0;x<x1;x+=1.5){ var gy=city.groundAt(x); g.strokeStyle=gy<0?'#5d6b73':(gy>75?'#9aa1a7':(gy>40?'#8f9a6a':'#78a257')); g.beginPath(); g.moveTo(sx(x),sy(gy)); g.lineTo(sx(x+1.5),sy(city.groundAt(x+1.5))); g.stroke(); }
+  // 도로선
+  g.strokeStyle='rgba(255,255,255,.75)'; g.lineWidth=2; g.setLineDash([10,8]); g.beginPath(); for(x=Math.max(0,x0);x<=Math.min(city.xEnd,x1);x+=3){ var yy=sy(city.groundAt(x))+5; if(x===Math.max(0,x0)) g.moveTo(sx(x),yy); else g.lineTo(sx(x),yy); } g.stroke(); g.setLineDash([]);
+  // 건물
+  for(i=0;i<city.bld.length;i++){ var b=city.bld[i]; if(b.x+b.w<x0||b.x>x1) continue;
+    var bx=sx(b.x), bw=b.w*SC, by=sy(b.base), bh=b.h*SC, safe=b.base+b.h>H+0.3;
+    g.fillStyle=b.kind==='tower'?'#7f8ea0':b.kind==='mid'?'#9a9fa8':'#b89a7a'; g.fillRect(bx,by-bh,bw,bh);
+    g.fillStyle='rgba(0,0,0,.18)'; g.fillRect(bx+bw*0.72,by-bh,bw*0.28,bh);
+    g.fillStyle='rgba(255,243,186,.75)';
+    var fl=Math.floor(b.h/4); for(var r2=0;r2<fl;r2++){ var wy=by-bh+6+r2*(bh-10)/Math.max(1,fl); for(var c2=0;c2<Math.max(1,Math.floor(b.w/5));c2++) g.fillRect(bx+4+c2*(bw-8)/Math.max(1,Math.floor(b.w/5)),wy,5,6); }
+    g.fillStyle='#3a2f28'; g.fillRect(bx+bw/2-4,by-12,8,12);
+    g.fillStyle=safe?'#0f9a68':'#6b747d'; g.fillRect(bx,by-bh-5,bw,5);
+    g.fillStyle='#fff'; g.font='700 12px "IBM Plex Mono",monospace'; g.textAlign='center'; g.fillText(Math.round(b.h)+'m',bx+bw/2,by-bh-9); g.textAlign='left';
+  }
+  // 파고 기준선
+  var dy=sy(H); if(dy>-20&&dy<CH+20){ g.strokeStyle='rgba(217,68,15,.95)'; g.lineWidth=2; g.setLineDash([12,8]); g.beginPath(); g.moveTo(0,dy); g.lineTo(CW,dy); g.stroke(); g.setLineDash([]);
+    g.fillStyle='#d9440f'; g.font='700 14px "Noto Sans KR",sans-serif'; g.fillText('쓰나미 최대 파고 '+H+' m (이 선보다 위로)',CW-292,dy-6); }
+  // 물
+  var tt=now/1000;
+  for(x=x0;x<=x1;x+=0.6){
+    var gr=city.groundAt(x), lv=waveLevel(x,f,H,A), calm=0;
+    var top=Math.max(calm,lv); if(top<=gr) continue;
+    var ripple=lv>0.5?0.15*Math.sin(x*0.7+tt*3):0.25*Math.sin(x*0.5+tt*2);
+    var yTop=sy(top+ripple), yBot=sy(gr);
+    var edge=lv>0&&(f-x)<3+0.12*H;
+    g.fillStyle=edge?'rgba(235,248,255,.95)':(lv>0?'rgba(36,112,190,.82)':'rgba(52,142,212,.78)');
+    g.fillRect(sx(x),yTop,0.6*SC+1,yBot-yTop+1);
+  }
+  // 최적 경로
+  if(showBest&&plan){ g.strokeStyle='#0fd08f'; g.lineWidth=3; g.setLineDash([8,6]); g.beginPath(); var tx=plan.x; g.moveTo(sx(S.x),sy(playerY(S)));
+    g.lineTo(sx(tx),sy(city.groundAt(tx))); if(plan.type==='building'){ g.lineTo(sx(tx),sy(plan.b.base+plan.b.h)); } g.stroke(); g.setLineDash([]); }
+  // 플레이어
+  var px=sx(S.x), pyy=sy(py);
+  if(S.done&&S.result&&!S.result.alive){ g.strokeStyle='#c9281c'; g.lineWidth=5; g.beginPath(); g.moveTo(px-10,pyy-22); g.lineTo(px+10,pyy-2); g.moveTo(px+10,pyy-22); g.lineTo(px-10,pyy-2); g.stroke(); }
+  else {
+    var bob=S.moving?Math.sin(now/90)*2:0;
+    g.fillStyle='rgba(0,0,0,.25)'; g.beginPath(); g.ellipse(px,pyy+1,9,3,0,0,6.283); g.fill();
+    g.fillStyle=S.climb>0.05?'#0f9a68':'#d9440f'; g.fillRect(px-6,pyy-18+bob,12,14);
+    g.fillStyle='#f2c9a0'; g.beginPath(); g.arc(px,pyy-23+bob,5.5,0,6.283); g.fill();
+    g.fillStyle='#2b2b2b'; g.fillRect(px-5+(S.dir>0?2:-2),pyy-5+bob,4,5); g.fillRect(px+1+(S.dir>0?2:-2),pyy-5-bob,4,5);
+    g.strokeStyle='#fff'; g.lineWidth=2; g.beginPath(); g.arc(px,pyy-12,17,0,6.283); g.globalAlpha=0.0; g.stroke(); g.globalAlpha=1;
+    g.fillStyle='#fff'; g.font='700 12px "Noto Sans KR",sans-serif'; g.textAlign='center'; g.fillText('나 · '+py.toFixed(1)+' m',px,pyy-36); g.textAlign='left';
+  }
+  // 도착 간격 표시줄 (쓰나미 앞면 위치 화살표)
+  var fx=sx(f); if(fx<8||fx>CW-8){ g.fillStyle='rgba(20,60,120,.9)'; g.font='700 14px "Noto Sans KR",sans-serif'; if(fx<8){ g.fillText('◀ 쓰나미 앞면 '+Math.round(S.x-f)+' m',10,84); } else { g.textAlign='right'; g.fillText('쓰나미 앞면 '+Math.round(f-S.x)+' m ▶',CW-10,84); g.textAlign='left'; } }
+  // 화면 안 핵심 수치 (화면이 작을수록 글씨를 키움)
+  var etaS=(S.x-S.front)/ts.v, need=ts.H-py, urgent=!S.done&&etaS<25&&need>0;
+  var fs=Math.round(15*Math.max(1,0.8*CW/(cv.clientWidth||CW))), t1=S.done?'쓰나미 도착':'도착까지 '+fmtT(etaS)+' (게임 시간)', t2='내 높이 '+py.toFixed(1)+' m · '+(need>0?'안전까지 +'+need.toFixed(1)+' m':'안전 높이 확보');
+  g.font='700 '+fs+'px "Noto Sans KR",sans-serif';
+  var bw=Math.max(g.measureText(t1).width,g.measureText(t2).width)+fs;
+  g.fillStyle=urgent?'rgba(150,25,15,.88)':'rgba(14,24,34,.74)'; g.fillRect(8,8,bw,fs*2.7);
+  g.fillStyle='#fff'; g.fillText(t1,8+fs/2,8+fs*1.15);
+  g.fillStyle=need>0?'#ffd9a8':'#9af0c8'; g.fillText(t2,8+fs/2,8+fs*2.25);
+  drawMini();
+}
+function drawMini(){
+  var g=ctx, mx=10, mw=CW-20, my=CH-74, mh=64, x0=-60, x1=city.xEnd, ymin=-12, ymax=Math.max(ts.H+25,70);
+  var X=function(x){ return mx+(x-x0)/(x1-x0)*mw; }, Y=function(y){ return my+mh-(clamp(y,ymin,ymax)-ymin)/(ymax-ymin)*mh; };
+  g.fillStyle='rgba(14,24,34,.62)'; g.fillRect(mx-4,my-4,mw+8,mh+8);
+  // 침수 영역
+  var f=S.front, A=shoalAmp(f,ts.H);
+  g.fillStyle='rgba(60,150,220,.7)'; for(var x=x0;x<=x1;x+=3){ var lv=Math.max(0,waveLevel(x,f,ts.H,A)), gr=city.groundAt(x); var top=Math.max(0,lv); if(top>gr) g.fillRect(X(x),Y(top),mw/((x1-x0)/3)+0.6,Y(gr)-Y(top)); }
+  g.beginPath(); g.moveTo(X(x0),my+mh); for(x=x0;x<=x1;x+=4) g.lineTo(X(x),Y(city.groundAt(x))); g.lineTo(X(x1),my+mh); g.closePath(); g.fillStyle='#8a7860'; g.fill();
+  g.fillStyle='#c9d0d6'; city.bld.forEach(function(b){ g.fillRect(X(b.x),Y(b.base+b.h),Math.max(2,b.w/(x1-x0)*mw),Y(b.base)-Y(b.base+b.h)); });
+  g.strokeStyle='#ff7a45'; g.setLineDash([5,4]); g.lineWidth=1.5; g.beginPath(); g.moveTo(mx,Y(ts.H)); g.lineTo(mx+mw,Y(ts.H)); g.stroke(); g.setLineDash([]);
+  g.fillStyle='#ff9a6c'; g.font='700 11px "IBM Plex Mono",monospace'; g.fillText(ts.H+'m',mx+4,Y(ts.H)-3);
+  g.fillStyle='#fff'; g.beginPath(); g.arc(X(S.x),Y(playerY(S)),4,0,6.283); g.fill(); g.strokeStyle='#d9440f'; g.lineWidth=2; g.stroke();
+  g.strokeStyle='#bfe4ff'; g.lineWidth=2; g.beginPath(); g.moveTo(X(f),my); g.lineTo(X(f),my+mh); g.stroke();
+  g.strokeStyle='rgba(255,255,255,.4)'; g.lineWidth=1; g.strokeRect(X(cam.x-CW/2/SC),my,CW/SC/(x1-x0)*mw,mh);
+}
+
+/* ---------- 진행 ---------- */
+var LESSONS={
+  low:'파고보다 낮은 건물은 피난처가 되지 못합니다. 예상 높이를 먼저 확인하세요.',
+  late:'대피에는 이동 시간 외에 계단을 오르는 시간이 듭니다. 건물에 들어가기 전에 시간이 충분한지 따져 보아야 합니다.',
+  hill:'걷는 속도가 쓰나미보다 느리면, 도망치는 도중에 따라잡힙니다. 가까이 있는 높은 곳이 먼 안전지대보다 나을 수 있습니다.',
+  idle:'경보를 듣고 움직이지 않으면 방법이 없습니다. 쓰나미 덴덴코, 즉 각자 지체 없이 높은 곳으로 피하는 것이 원칙입니다.',
+  ok:'파고보다 높은 곳에 있었기 때문에 앞면이 닿아도 안전했습니다. 해일은 여러 번 오므로 안전해진 뒤에도 내려가지 않아야 합니다.'
+};
+function finishUI(){
+  var R=S.result, ok=R.alive, rec=loadRec(); if(ok) rec.win++; else rec.lose++; saveRec(rec); showRec();
+  $('rCity').textContent=city.name+' · 쓰나미 '+ts.id+'번';
+  var t=$('rTitle'); t.textContent=ok?'생존! 대피 성공':'사망. 대피 실패'; t.className=ok?'ok':'ng';
+  var why;
+  if(R.why==='blocked') why='파도가 지형에 막혀 멈췄습니다. 내 위치는 파고 '+R.H+' m보다 높은 곳이었습니다.';
+  else if(ok) why='쓰나미 앞면이 내 위치에 닿은 순간 내 높이는 '+R.y.toFixed(1)+' m로 파고 '+R.H+' m보다 '+(R.y-R.H).toFixed(1)+' m 높았습니다.';
+  else why='쓰나미 앞면이 내 위치에 닿은 순간 내 높이는 '+R.y.toFixed(1)+' m로, 파고 '+R.H+' m보다 '+(R.H-R.y).toFixed(1)+' m 낮았습니다.';
+  $('rReason').textContent=why;
+  var rows=[['도착 시각',fmtT(R.t)],['내 위치 x',R.x.toFixed(0)+' m'],['내 높이 y',R.y.toFixed(1)+' m'],['최대 파고',R.H+' m'],['최적 대피 여유',plan.margin.toFixed(0)+' 초']];
+  var dl=$('rStats'); dl.innerHTML=''; rows.forEach(function(r){ var a=document.createElement('dt'),b=document.createElement('dd'); a.textContent=r[0]; b.textContent=r[1]; dl.appendChild(a); dl.appendChild(b); });
+  var L2;
+  if(ok) L2=LESSONS.ok;
+  else if(S.walked<5&&S.climbed<1) L2=LESSONS.idle;
+  else if(R.onB&&R.y<R.H&&S.maxBH<R.H) L2=LESSONS.low;
+  else if(R.onB) L2=LESSONS.late;
+  else L2=LESSONS.hill;
+  $('rLesson').textContent=L2;
+  $('result').hidden=false; addLog(ok?'생존':'사망');
+}
+function tickGame(dt){
+  var k={left:keys.left||padKeys.left,right:keys.right||padKeys.right,up:keys.up||padKeys.up,down:keys.down||padKeys.down,run:keys.run||runTog};
+  var any=k.left||k.right||k.up||k.down;
+  var py=playerY(S), safe=py>ts.H+0.3&&!any;
+  var KK=Kmul; if(safe){ KK=Math.max(Kmul,40); if(!autoFast){ autoFast=true; toast('파고보다 높은 곳입니다. 쓰나미 도착까지 빨리 감습니다.','good'); addLog('안전 높이 확보'); } } else autoFast=false;
+  var x0=S.x; step(S,k,dt*KK);
+  S.walked=(S.walked||0)+Math.abs(S.x-x0); S.climbed=Math.max(S.climbed||0,S.climb); S.maxBH=Math.max(S.maxBH||0,S.onB?S.onB.base+S.onB.h:0);
+  if(S.onB&&k.up&&!S.noteB){ S.noteB=1; addLog('건물 '+Math.round(S.onB.h)+'m 계단을 오릅니다'); }
+  if(S.done) finishUI();
+}
+var hudAt=0;
+function hud(now){
+  if(now-hudAt<80) return; hudAt=now;
+  var py=playerY(S), eta=(S.x-S.front)/ts.v;
+  setText($('gEta'),S.done?'도착':fmtT(eta)); setText($('gEtaReal'),S.done?'':'(실시간 약 '+Math.max(1,Math.round(eta/Kmul))+'초)');
+  setText($('gY'),py.toFixed(1)); var need=ts.H-py; setText($('gNeed'),need>0?('+'+need.toFixed(1)):'확보');
+  setText($('gClock'),fmtT(S.t));
+  var st=$('stam'); st.style.width=(S.stam/RUN_SEC*100)+'%'; st.className=S.stam<2?'low':'';
+  var gf=$('gapFill'); var frac=clamp(1-Math.max(0,eta)/Math.max(1,(S.x-S.front0)/ts.v),0,1); gf.style.width=(frac*100)+'%'; gf.className=py>ts.H?'':(frac>0.75?'neg':'');
+  if(S.done) setPhaseUI(S.result.alive?'생존':'사망',S.result.alive?'good':'bad');
+  else if(py>ts.H+0.3) setPhaseUI('안전 높이 확보','good');
+  else if(S.climb>0.05) setPhaseUI('계단 오르는 중','warn');
+  else setPhaseUI('대피 중',eta<30?'bad':'warn');
+}
+
+/* ---------- 메인 루프 ---------- */
+function frame(now){
+  var dt=Math.min(0.1,(now-last)/1000); last=now;
+  if(mode==='intro'){
+    if(introPlaying){ tw+=dt*(tw<T_GEN?1:1.15); if(tw>T_BORE+7){ tw=T_BORE+7; introPlaying=false; $('btnPlay').textContent='재생'; } }
+    drawIntro(); updateIntroUI(false);
+  } else {
+    if(S&&!S.done&&!paused) tickGame(dt);
+    else if(S&&S.done&&S.front<S.stopX){ S.front+=ts.v*dt*Math.max(30,Kmul*4); S.t+=dt*Math.max(30,Kmul*4)*0; }
+    drawGame(now); hud(now);
+    if(paused){ ctx.fillStyle='rgba(10,20,30,.4)'; ctx.fillRect(0,0,CW,CH); ctx.fillStyle='#fff'; ctx.font='400 46px "Do Hyeon",sans-serif'; ctx.textAlign='center'; ctx.fillText('일시정지',CW/2,CH/2); ctx.textAlign='left'; }
+  }
+  requestAnimationFrame(frame);
+}
+window.__T={newGame:newGame,startGame:startGame,S:function(){return S;},plan:function(){return plan;},step:function(k,dt){ step(S,k,dt); if(S.done&&$('result').hidden) finishUI(); },city:function(){return city;},ts:function(){return ts;},setTw:function(v){ tw=v; introPlaying=false; },draw:function(){ if(mode==='intro'){ drawIntro(); updateIntroUI(true);} else { drawGame(performance.now()); hud(1e9); } },mode:function(){return mode;},finish:finishUI};
+newGame();
+last=performance.now(); requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
